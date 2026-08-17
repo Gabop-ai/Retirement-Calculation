@@ -12,8 +12,8 @@ st.sidebar.header("⚙️ Simulation Controls")
 
 # 1. Macro & Return Assumptions
 with st.sidebar.expander("📊 Macro & Return Assumptions", expanded=True):
-    annual_return = st.number_input("Annual Compound Return Rate (%)", min_value=0.0, max_value=15.0, value=5.0, step=0.25) / 100.0
-    target_income = st.number_input("Target Annual Gross Income ($CAD)", min_value=50000, max_value=500000, value=250000, step=5000)
+    annual_return = st.number_input("Annual Compound Return Rate (%)", min_value=0.0, max_value=15.0, value=4.75, step=0.25) / 100.0
+    target_income = st.number_input("Target Annual Gross Income ($CAD)", min_value=50000, max_value=500000, value=300000, step=5000)
     life_expectancy = st.slider("Model End Age (Life Expectancy)", 80, 100, 89)
 
 # 2. Household Timeline
@@ -109,19 +109,69 @@ for age in range(start_age, end_age + 1):
             
         base_needed = max(0.0, target_income - pensions)
         
+        # Calculate mandatory RRIF minimums if age >= 71
+        mandatory_taxable_draw = 0.0
+        u_rrif_min, u_lira_min, s_rrif_min = 0.0, 0.0, 0.0
         if age >= 71:
             u_rrif_min = u_rrsp * get_rrif_minimum_pct(age)
             u_lira_min = u_lira * get_rrif_minimum_pct(age)
             s_rrif_min = s_rrsp * get_rrif_minimum_pct(age)
             mandatory_taxable_draw = u_rrif_min + u_lira_min + s_rrif_min
-            required_draw = max(base_needed, mandatory_taxable_draw)
-        else:
-            required_draw = base_needed
+
+        # Total cash needed from portfolio to meet target income
+        total_needed_cash = max(base_needed, mandatory_taxable_draw)
+        
+        # --- WITHDRAWAL WATERFALL LOGIC ---
+        remaining_cash_needed = total_needed_cash
+        
+        # 1. Draw mandatory taxable minimums first from RRSP/LIRA
+        drawn_rrsp_lira = min(remaining_cash_needed, mandatory_taxable_draw)
+        remaining_cash_needed -= drawn_rrsp_lira
+        
+        # 2. Draw from Non-Registered accounts next if more cash is needed
+        total_non_reg_avail = u_mf + s_mf
+        drawn_non_reg = min(remaining_cash_needed, total_non_reg_avail)
+        remaining_cash_needed -= drawn_non_reg
+        
+        # 3. Draw from TFSAs next if more cash is needed
+        total_tfsa_avail = u_tfsa_mf + u_tfsa_etf + s_tfsa
+        drawn_tfsa = min(remaining_cash_needed, total_tfsa_avail)
+        remaining_cash_needed -= drawn_tfsa
+        
+        # 4. Draw any remaining shortfall from discretionary RRSP/LIRA if available
+        total_rrsp_lira_avail = (u_rrsp + u_lira + s_rrsp) - drawn_rrsp_lira
+        drawn_extra_rrsp = min(remaining_cash_needed, max(0.0, total_rrsp_lira_avail))
+        remaining_cash_needed -= drawn_extra_rrsp
+        
+        total_portfolio_draw = drawn_rrsp_lira + drawn_non_reg + drawn_tfsa + drawn_extra_rrsp
+        required_draw = total_portfolio_draw
             
         total_gross = round(required_draw + pensions, 2)
         est_tax = estimate_alberta_tax(total_gross)
         eff_tax_rate = round((est_tax / total_gross) * 100, 1) if total_gross > 0 else 0.0
         
+        # Deduct actual funds from specific buckets for the upcoming year transition
+        if total_non_reg_avail > 0 and drawn_non_reg > 0:
+            frac_u_mf = u_mf / total_non_reg_avail
+            u_mf = max(0.0, u_mf - (drawn_non_reg * frac_u_mf))
+            s_mf = max(0.0, s_mf - (drawn_non_reg * (1 - frac_u_mf)))
+            
+        if total_tfsa_avail > 0 and drawn_tfsa > 0:
+            u_tfsa_total = u_tfsa_mf + u_tfsa_etf
+            frac_u_tfsa = u_tfsa_total / total_tfsa_avail
+            u_tfsa_target_draw = drawn_tfsa * frac_u_tfsa
+            if u_tfsa_total > 0:
+                u_tfsa_mf = max(0.0, u_tfsa_mf - (u_tfsa_target_draw * (u_tfsa_mf / u_tfsa_total)))
+                u_tfsa_etf = max(0.0, u_tfsa_etf - (u_tfsa_target_draw * (u_tfsa_etf / u_tfsa_total)))
+            s_tfsa = max(0.0, s_tfsa - (drawn_tfsa * (1 - frac_u_tfsa)))
+
+        total_rrsp_lira_pool = u_rrsp + u_lira + s_rrsp
+        total_rrsp_draw_amt = drawn_rrsp_lira + drawn_extra_rrsp
+        if total_rrsp_lira_pool > 0 and total_rrsp_draw_amt > 0:
+            u_rrsp = max(0.0, u_rrsp - (total_rrsp_draw_amt * (u_rrsp / total_rrsp_lira_pool)))
+            u_lira = max(0.0, u_lira - (total_rrsp_draw_amt * (u_lira / total_rrsp_lira_pool)))
+            s_rrsp = max(0.0, s_rrsp - (total_rrsp_draw_amt * (s_rrsp / total_rrsp_lira_pool)))
+
     total_user_rrsp_lira = round(u_rrsp + u_lira + s_rrsp, 2)
     total_tfsa = round(u_tfsa_mf + u_tfsa_etf + s_tfsa, 2)
     total_non_reg = round(u_mf + s_mf, 2)
@@ -144,16 +194,8 @@ for age in range(start_age, end_age + 1):
         "Total Household Portfolio": total_portfolio
     })
     
-    # Asset evolution for next year
+    # Asset evolution / contributions / growth for next year
     if age < end_age:
-        draw_ratio = 0.0
-        if is_retired and (u_rrsp + u_lira + s_rrsp) > 0:
-            draw_ratio = required_draw / (u_rrsp + u_lira + s_rrsp)
-        
-        u_rrsp = max(0.0, u_rrsp - (u_rrsp * draw_ratio))
-        u_lira = max(0.0, u_lira - (u_lira * draw_ratio))
-        s_rrsp = max(0.0, s_rrsp - (s_rrsp * draw_ratio))
-        
         if user_is_working:
             u_rrsp += user_rrsp_annual_contrib
             u_tfsa_mf += user_tfsa_annual_contrib * 0.5
@@ -200,13 +242,11 @@ st.dataframe(df_display.style.format({
 st.subheader("📈 Long-Term Wealth & Cashflow Trends")
 fig, axes = plt.subplots(nrows=3, ncols=1, figsize=(10, 11), sharex=True)
 
-# Chart 1: Total Portfolio Trend
 axes[0].plot(df_master["Age"], df_master["Total Household Portfolio"] / 1e6, label=f"Total Portfolio ($M) @ {r*100:.2f}% Return", color="navy", linewidth=2.5)
 axes[0].set_ylabel("Portfolio Value ($M)")
 axes[0].grid(True, linestyle=":", alpha=0.6)
 axes[0].legend(loc="upper left")
 
-# Chart 2: Asset Breakdowns by Fund Type (Stacked Area)
 axes[1].stackplot(
     df_master["Age"],
     df_master["RRSP/LIRA Balances"] / 1e6,
@@ -221,7 +261,6 @@ axes[1].set_ylabel("Asset Mix ($M)")
 axes[1].grid(True, linestyle=":", alpha=0.6)
 axes[1].legend(loc="upper left")
 
-# Chart 3: Cashflow & Tax Schedule
 axes[2].bar(df_master["Age"], df_master["Pensions"] / 1e3, label="Pensions / CPP / OAS", color="skyblue")
 axes[2].bar(df_master["Age"], df_master["Portfolio Drawdown"] / 1e3, bottom=df_master["Pensions"] / 1e3, label="Portfolio Drawdowns", color="royalblue")
 axes[2].plot(df_master["Age"], df_master["Est. Tax Paid"] / 1e3, label="Est. Tax Paid ($k)", color="crimson", linewidth=2)
