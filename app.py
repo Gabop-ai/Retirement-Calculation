@@ -5,16 +5,17 @@ import matplotlib.pyplot as plt
 
 st.set_page_config(page_title="Comprehensive Household Retirement & Tax Simulator", page_icon="📈", layout="wide")
 
-st.title("📈 Comprehensive Household Retirement & Tax Simulator")
-st.markdown("Advanced multi-asset retirement projection model incorporating dual-income timelines, phased drawdowns, RRIF minimums, pensions, and progressive Alberta tax optimization.")
+st.title("📈 Comprehensive Household Retirement & Tax Simulator (Tax-Optimized)")
+st.markdown("Advanced multi-asset retirement projection model incorporating dual-income timelines, automated pre-71 RRSP meltdowns, tax bracket management, and Alberta tax optimization.")
 
 st.sidebar.header("⚙️ Simulation Controls")
 
 # 1. Macro & Return Assumptions
 with st.sidebar.expander("📊 Macro & Return Assumptions", expanded=True):
     annual_return = st.number_input("Annual Compound Return Rate (%)", min_value=0.0, max_value=15.0, value=4.75, step=0.25) / 100.0
-    target_income = st.number_input("Target Annual Gross Income ($CAD)", min_value=50000, max_value=500000, value=300000, step=5000)
+    target_income = st.number_input("Target Annual Gross Income ($CAD)", min_value=50000, max_value=500000, value=200000, step=5000)
     life_expectancy = st.slider("Model End Age (Life Expectancy)", 80, 100, 89)
+    enable_meltdown = st.checkbox("Enable Pre-71 Tax-Optimized RRSP Meltdown", value=True, help="Voluntarily draws down RRSP/LIRAs in your 60s to fill lower tax brackets and avoid age-71 mandatory minimum spikes.")
 
 # 2. Household Timeline
 with st.sidebar.expander("👥 Household Timeline", expanded=False):
@@ -64,7 +65,7 @@ def get_rrif_minimum_pct(age):
         return 0.0
     return rates.get(age, 0.20)
 
-# Alberta Progressive Tax Estimation Function
+# Alberta Progressive Tax Estimation Function (Combined Federal + AB approximate marginal staging)
 def estimate_alberta_tax(gross_income):
     if gross_income <= 0:
         return 0.0
@@ -100,6 +101,7 @@ for age in range(start_age, end_age + 1):
     total_gross = 0.0
     est_tax = 0.0
     eff_tax_rate = 0.0
+    vol_rrsp_meltdown = 0.0
     
     if is_retired:
         if spouse_age_current >= retirement_age_spouse:
@@ -118,39 +120,54 @@ for age in range(start_age, end_age + 1):
             s_rrif_min = s_rrsp * get_rrif_minimum_pct(age)
             mandatory_taxable_draw = u_rrif_min + u_lira_min + s_rrif_min
 
-        # Total cash needed from portfolio to meet target income
         total_needed_cash = max(base_needed, mandatory_taxable_draw)
         
-        # --- WITHDRAWAL WATERFALL LOGIC ---
+        # --- TAX-OPTIMIZED WITHDRAWAL WATERFALL & MELTDOWN LOGIC ---
         remaining_cash_needed = total_needed_cash
         
-        # 1. Draw mandatory taxable minimums first from RRSP/LIRA
+        # 1. Mandatory taxable minimums first from RRSP/LIRA
         drawn_rrsp_lira = min(remaining_cash_needed, mandatory_taxable_draw)
         remaining_cash_needed -= drawn_rrsp_lira
         
-        # 2. Draw from Non-Registered accounts next if more cash is needed
+        # 2. Non-Registered accounts next
         total_non_reg_avail = u_mf + s_mf
         drawn_non_reg = min(remaining_cash_needed, total_non_reg_avail)
         remaining_cash_needed -= drawn_non_reg
         
-        # 3. Draw from TFSAs next if more cash is needed
+        # 3. TFSAs next if still short of target income
         total_tfsa_avail = u_tfsa_mf + u_tfsa_etf + s_tfsa
         drawn_tfsa = min(remaining_cash_needed, total_tfsa_avail)
         remaining_cash_needed -= drawn_tfsa
         
-        # 4. Draw any remaining shortfall from discretionary RRSP/LIRA if available
-        total_rrsp_lira_avail = (u_rrsp + u_lira + s_rrsp) - drawn_rrsp_lira
-        drawn_extra_rrsp = min(remaining_cash_needed, max(0.0, total_rrsp_lira_avail))
+        # 4. Discretionary RRSP/LIRA to cover final cash shortfall
+        total_rrsp_lira_pool = u_rrsp + u_lira + s_rrsp - drawn_rrsp_lira
+        drawn_extra_rrsp = min(remaining_cash_needed, max(0.0, total_rrsp_lira_pool))
         remaining_cash_needed -= drawn_extra_rrsp
         
+        # 5. OPTIMIZATION: Pre-71 Meltdown Routine
+        # If retired, under age 71, meltdown is enabled, and we have room under the 30.5% tax threshold (~$117k)
+        if enable_meltdown and age < 71:
+            current_taxable_est = pensions + drawn_rrsp_lira + drawn_extra_rrsp
+            headroom = 117045.0 - current_taxable_est
+            if headroom > 5000:
+                # Voluntarily draw extra from RRSP/LIRA to fill the lower tax bracket efficiently
+                available_to_melt = u_rrsp + u_lira + s_rrsp - drawn_rrsp_lira - drawn_extra_rrsp
+                vol_rrsp_meltdown = min(headroom * 0.6, available_to_melt)
+                vol_rrsp_meltdown = max(0.0, vol_rrsp_meltdown)
+
         total_portfolio_draw = drawn_rrsp_lira + drawn_non_reg + drawn_tfsa + drawn_extra_rrsp
         required_draw = total_portfolio_draw
             
-        total_gross = round(required_draw + pensions, 2)
+        total_gross = round(required_draw + pensions + vol_rrsp_meltdown, 2)
         est_tax = estimate_alberta_tax(total_gross)
         eff_tax_rate = round((est_tax / total_gross) * 100, 1) if total_gross > 0 else 0.0
         
-        # Deduct actual funds from specific buckets for the upcoming year transition
+        # Excess meltdown cash (not consumed by target income) is auto-seeded into TFSA
+        surplus_meltdown_cash = max(0.0, vol_rrsp_meltdown - max(0.0, target_income - (pensions + required_draw)))
+        if surplus_meltdown_cash > 0:
+            u_tfsa_etf += surplus_meltdown_cash
+
+        # Deduct actual funds from specific buckets
         if total_non_reg_avail > 0 and drawn_non_reg > 0:
             frac_u_mf = u_mf / total_non_reg_avail
             u_mf = max(0.0, u_mf - (drawn_non_reg * frac_u_mf))
@@ -165,12 +182,12 @@ for age in range(start_age, end_age + 1):
                 u_tfsa_etf = max(0.0, u_tfsa_etf - (u_tfsa_target_draw * (u_tfsa_etf / u_tfsa_total)))
             s_tfsa = max(0.0, s_tfsa - (drawn_tfsa * (1 - frac_u_tfsa)))
 
-        total_rrsp_lira_pool = u_rrsp + u_lira + s_rrsp
-        total_rrsp_draw_amt = drawn_rrsp_lira + drawn_extra_rrsp
-        if total_rrsp_lira_pool > 0 and total_rrsp_draw_amt > 0:
-            u_rrsp = max(0.0, u_rrsp - (total_rrsp_draw_amt * (u_rrsp / total_rrsp_lira_pool)))
-            u_lira = max(0.0, u_lira - (total_rrsp_draw_amt * (u_lira / total_rrsp_lira_pool)))
-            s_rrsp = max(0.0, s_rrsp - (total_rrsp_draw_amt * (s_rrsp / total_rrsp_lira_pool)))
+        total_rrsp_lira_pool_start = u_rrsp + u_lira + s_rrsp
+        total_rrsp_draw_amt = drawn_rrsp_lira + drawn_extra_rrsp + vol_rrsp_meltdown
+        if total_rrsp_lira_pool_start > 0 and total_rrsp_draw_amt > 0:
+            u_rrsp = max(0.0, u_rrsp - (total_rrsp_draw_amt * (u_rrsp / total_rrsp_lira_pool_start)))
+            u_lira = max(0.0, u_lira - (total_rrsp_draw_amt * (u_lira / total_rrsp_lira_pool_start)))
+            s_rrsp = max(0.0, s_rrsp - (total_rrsp_draw_amt * (s_rrsp / total_rrsp_lira_pool_start)))
 
     total_user_rrsp_lira = round(u_rrsp + u_lira + s_rrsp, 2)
     total_tfsa = round(u_tfsa_mf + u_tfsa_etf + s_tfsa, 2)
@@ -183,6 +200,7 @@ for age in range(start_age, end_age + 1):
         "Spouse Age": spouse_age_current,
         "Retirement Status": "Retired" if is_retired else "Accumulating",
         "Portfolio Drawdown": round(required_draw, 0),
+        "Vol. RRSP Meltdown": round(vol_rrsp_meltdown, 0),
         "Pensions": round(pensions, 0),
         "Total Gross Income": round(total_gross, 0),
         "Est. Tax Paid": round(est_tax, 0),
@@ -219,7 +237,7 @@ for age in range(start_age, end_age + 1):
 df_master = pd.DataFrame(results)
 
 # Display Table
-st.subheader("📊 Full Projection Summary Schedule & Account Balances")
+st.subheader("📊 Tax-Optimized Projection Schedule & Account Balances")
 display_ages = [start_age, 55, 60, 64, retirement_age_user, 66, 70, 71, 75, 80, 85, end_age]
 display_ages = sorted(list(set([a for a in display_ages if a <= end_age])))
 df_display = df_master[df_master["Age"].isin(display_ages)]
@@ -227,6 +245,7 @@ df_display = df_master[df_master["Age"].isin(display_ages)]
 st.dataframe(df_display.style.format({
     "Spouse Age": "{:.0f}",
     "Portfolio Drawdown": "${:,.0f}",
+    "Vol. RRSP Meltdown": "${:,.0f}",
     "Pensions": "${:,.0f}",
     "Total Gross Income": "${:,.0f}",
     "Est. Tax Paid": "${:,.0f}",
@@ -239,7 +258,7 @@ st.dataframe(df_display.style.format({
 }), use_container_width=True)
 
 # Visualizations
-st.subheader("📈 Long-Term Wealth & Cashflow Trends")
+st.subheader("📈 Long-Term Wealth & Tax-Smoothed Cashflow Trends")
 fig, axes = plt.subplots(nrows=3, ncols=1, figsize=(10, 11), sharex=True)
 
 axes[0].plot(df_master["Age"], df_master["Total Household Portfolio"] / 1e6, label=f"Total Portfolio ($M) @ {r*100:.2f}% Return", color="navy", linewidth=2.5)
@@ -263,6 +282,7 @@ axes[1].legend(loc="upper left")
 
 axes[2].bar(df_master["Age"], df_master["Pensions"] / 1e3, label="Pensions / CPP / OAS", color="skyblue")
 axes[2].bar(df_master["Age"], df_master["Portfolio Drawdown"] / 1e3, bottom=df_master["Pensions"] / 1e3, label="Portfolio Drawdowns", color="royalblue")
+axes[2].bar(df_master["Age"], df_master["Vol. RRSP Meltdown"] / 1e3, bottom=(df_master["Pensions"] + df_master["Portfolio Drawdown"]) / 1e3, label="Voluntary RRSP Meltdown", color="darkorange")
 axes[2].plot(df_master["Age"], df_master["Est. Tax Paid"] / 1e3, label="Est. Tax Paid ($k)", color="crimson", linewidth=2)
 axes[2].set_xlabel("Your Age")
 axes[2].set_ylabel("Annual Amount ($k)")
