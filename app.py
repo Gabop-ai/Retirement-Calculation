@@ -198,19 +198,37 @@ st.dataframe(df_display.style.format({
 
 # Visualizations
 st.subheader("📈 Long-Term Wealth & Cashflow Trends")
-fig, axes = plt.subplots(nrows=2, ncols=1, figsize=(10, 8), sharex=True)
+fig, axes = plt.subplots(nrows=3, ncols=1, figsize=(10, 11), sharex=True)
 
+# Chart 1: Total Portfolio Trend
 axes[0].plot(df_master["Age"], df_master["Total Household Portfolio"] / 1e6, label=f"Total Portfolio ($M) @ {r*100:.2f}% Return", color="navy", linewidth=2.5)
-axes[0].set_ylabel("Portfolio Value ($ Millions)")
+axes[0].set_ylabel("Portfolio Value ($M)")
 axes[0].grid(True, linestyle=":", alpha=0.6)
 axes[0].legend(loc="upper left")
 
-axes[1].bar(df_master["Age"], df_master["Pensions"] / 1e3, label="Pensions / CPP / OAS", color="skyblue")
-axes[1].bar(df_master["Age"], df_master["Portfolio Drawdown"] / 1e3, bottom=df_master["Pensions"] / 1e3, label="Portfolio Drawdowns", color="royalblue")
-axes[1].plot(df_master["Age"], df_master["Est. Tax Paid"] / 1e3, label="Est. Tax Paid ($k)", color="crimson", linewidth=2)
-axes[1].set_xlabel("Your Age")
-axes[1].set_ylabel("Annual Amount ($k)")
+# Chart 2: Asset Breakdowns by Fund Type (Stacked Area)
+axes[1].stackplot(
+    df_master["Age"],
+    df_master["RRSP/LIRA Balances"] / 1e6,
+    df_master["TFSA Balances"] / 1e6,
+    df_master["Non-Reg Balances"] / 1e6,
+    df_master["UL Cash Value"] / 1e6,
+    labels=["RRSP / LIRA", "TFSA", "Non-Registered", "Universal Life"],
+    colors=["#1f77b4", "#2ca02c", "#ff7f0e", "#9467bd"],
+    alpha=0.85
+)
+axes[1].set_ylabel("Asset Mix ($M)")
 axes[1].grid(True, linestyle=":", alpha=0.6)
 axes[1].legend(loc="upper left")
 
+# Chart 3: Cashflow & Tax Schedule
+axes[2].bar(df_master["Age"], df_master["Pensions"] / 1e3, label="Pensions / CPP / OAS", color="skyblue")
+axes[2].bar(df_master["Age"], df_master["Portfolio Drawdown"] / 1e3, bottom=df_master["Pensions"] / 1e3, label="Portfolio Drawdowns", color="royalblue")
+axes[2].plot(df_master["Age"], df_master["Est. Tax Paid"] / 1e3, label="Est. Tax Paid ($k)", color="crimson", linewidth=2)
+axes[2].set_xlabel("Your Age")
+axes[2].set_ylabel("Annual Amount ($k)")
+axes[2].grid(True, linestyle=":", alpha=0.6)
+axes[2].legend(loc="upper left")
+
+plt.tight_layout()
 st.pyplot(fig)
