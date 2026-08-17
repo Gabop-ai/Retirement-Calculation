@@ -12,15 +12,15 @@ st.sidebar.header("⚙️ Simulation Controls")
 
 # 1. Macro & Return Assumptions
 with st.sidebar.expander("📊 Macro & Return Assumptions", expanded=True):
-    annual_return = st.number_input("Annual Compound Return Rate (%)", min_value=0.0, max_value=15.0, value=6.0, step=0.25) / 100.0
-    target_income = st.number_input("Target Annual Gross Income ($CAD)", min_value=50000, max_value=500000, value=230000, step=5000)
-    life_expectancy = st.slider("Model End Age (Life Expectancy)", 80, 100, 90)
+    annual_return = st.number_input("Annual Compound Return Rate (%)", min_value=0.0, max_value=15.0, value=5.0, step=0.25) / 100.0
+    target_income = st.number_input("Target Annual Gross Income ($CAD)", min_value=50000, max_value=500000, value=250000, step=5000)
+    life_expectancy = st.slider("Model End Age (Life Expectancy)", 80, 100, 89)
 
 # 2. Household Timeline
 with st.sidebar.expander("👥 Household Timeline", expanded=False):
     current_age_user = st.number_input("Your Current Age", 20, 80, 51)
     current_age_spouse = st.number_input("Spouse's Current Age", 20, 80, 51)
-    retirement_age_user = st.number_input("Your Target Retirement Age", 50, 75, 65)
+    retirement_age_user = st.number_input("Your Target Retirement Age", 50, 75, 60)
     retirement_age_spouse = st.number_input("Spouse's Target Retirement Age", 50, 75, 60)
 
 # 3. Starting Portfolio Assets
@@ -50,7 +50,7 @@ with st.sidebar.expander("📥 Annual Contributions", expanded=False):
 # 5. Pensions & Guaranteed Income
 with st.sidebar.expander("🛡️ Pensions & Guaranteed Income", expanded=False):
     cpp_oas_annual = st.number_input("Combined CPP & OAS (Age 65+) ($)", value=53800, step=1000)
-    spouse_company_pension = st.number_input("Spouse Company Pension (Starts at Spouse Retirement) ($)", value=35000, step=1000)
+    spouse_company_pension = st.number_input("Spouse Company Pension (Starts at Spouse Retirement) ($)", value=29000, step=1000)
 
 # RRIF Minimum Table Function
 def get_rrif_minimum_pct(age):
@@ -107,19 +107,26 @@ for age in range(start_age, end_age + 1):
         if age >= 65:
             pensions += cpp_oas_annual
             
+        base_needed = max(0.0, target_income - pensions)
+        
         if age >= 71:
             u_rrif_min = u_rrsp * get_rrif_minimum_pct(age)
             u_lira_min = u_lira * get_rrif_minimum_pct(age)
             s_rrif_min = s_rrsp * get_rrif_minimum_pct(age)
-            required_draw = round(u_rrif_min + u_lira_min + s_rrif_min, 2)
+            mandatory_taxable_draw = u_rrif_min + u_lira_min + s_rrif_min
+            required_draw = max(base_needed, mandatory_taxable_draw)
         else:
-            required_draw = max(0.0, target_income - pensions)
+            required_draw = base_needed
             
         total_gross = round(required_draw + pensions, 2)
         est_tax = estimate_alberta_tax(total_gross)
         eff_tax_rate = round((est_tax / total_gross) * 100, 1) if total_gross > 0 else 0.0
         
-    total_portfolio = round(u_rrsp + u_tfsa_mf + u_tfsa_etf + u_mf + u_lira + s_rrsp + s_tfsa + s_mf + ul_user + ul_spouse, 2)
+    total_user_rrsp_lira = round(u_rrsp + u_lira + s_rrsp, 2)
+    total_tfsa = round(u_tfsa_mf + u_tfsa_etf + s_tfsa, 2)
+    total_non_reg = round(u_mf + s_mf, 2)
+    total_ul = round(ul_user + ul_spouse, 2)
+    total_portfolio = round(total_user_rrsp_lira + total_tfsa + total_non_reg + total_ul, 2)
     
     results.append({
         "Age": age,
@@ -130,6 +137,10 @@ for age in range(start_age, end_age + 1):
         "Total Gross Income": round(total_gross, 0),
         "Est. Tax Paid": round(est_tax, 0),
         "Effective Tax Rate (%)": eff_tax_rate,
+        "RRSP/LIRA Balances": total_user_rrsp_lira,
+        "TFSA Balances": total_tfsa,
+        "Non-Reg Balances": total_non_reg,
+        "UL Cash Value": total_ul,
         "Total Household Portfolio": total_portfolio
     })
     
@@ -166,7 +177,7 @@ for age in range(start_age, end_age + 1):
 df_master = pd.DataFrame(results)
 
 # Display Table
-st.subheader("📊 Full Projection Summary Schedule")
+st.subheader("📊 Full Projection Summary Schedule & Account Balances")
 display_ages = [start_age, 55, 60, 64, retirement_age_user, 66, 70, 71, 75, 80, 85, end_age]
 display_ages = sorted(list(set([a for a in display_ages if a <= end_age])))
 df_display = df_master[df_master["Age"].isin(display_ages)]
@@ -178,6 +189,10 @@ st.dataframe(df_display.style.format({
     "Total Gross Income": "${:,.0f}",
     "Est. Tax Paid": "${:,.0f}",
     "Effective Tax Rate (%)": "{}%",
+    "RRSP/LIRA Balances": "${:,.0f}",
+    "TFSA Balances": "${:,.0f}",
+    "Non-Reg Balances": "${:,.0f}",
+    "UL Cash Value": "${:,.0f}",
     "Total Household Portfolio": "${:,.0f}"
 }), use_container_width=True)
 
