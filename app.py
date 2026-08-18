@@ -201,7 +201,7 @@ def run_simulation(ret_age_u, ret_age_s):
         sim_results.append({
             "Age": age,
             "Spouse Age": spouse_age_current,
-            "Retirement Status": "Retired" if is_is_retired := is_retired else "Accumulating",
+            "Retirement Status": "Retired" if is_retired else "Accumulating",
             "Portfolio Drawdown": round(required_draw, 0),
             "Vol. RRSP Meltdown": round(vol_rrsp_meltdown, 0),
             "Pensions": round(pensions, 0),
@@ -235,7 +235,7 @@ def run_simulation(ret_age_u, ret_age_s):
             ul_user *= (1 + r)
             ul_spouse *= (1 + r)
 
--   return pd.DataFrame(sim_results), total_lifetime_tax
+    return pd.DataFrame(sim_results), total_lifetime_tax
 
 # --- OPTIMIZATION TOOL IN SIDEBAR ---
 st.sidebar.markdown("---")
@@ -259,7 +259,7 @@ df_master, total_tax_paid = run_simulation(retirement_age_user, retirement_age_s
 
 # Display Table
 st.subheader("📊 Tax-Optimized Projection Schedule & Account Balances")
-display_ages = [start_age, 55, 60, 64, retirement_age_user, 66, 70, 71, 75, 80, 85, life_expectancy]
+display_ages = [current_age_user, 55, 60, 64, retirement_age_user, 66, 70, 71, 75, 80, 85, life_expectancy]
 display_ages = sorted(list(set([a for a in display_ages if a <= life_expectancy])))
 df_display = df_master[df_master["Age"].isin(display_ages)]
 
@@ -314,3 +314,4 @@ axes[2].legend(loc="upper left")
 
 plt.tight_layout()
 st.pyplot(fig)
+
