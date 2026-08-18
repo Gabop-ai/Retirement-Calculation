@@ -119,19 +119,16 @@ def run_simulation(ret_age_u, ret_age_s):
         vol_rrsp_meltdown = 0.0
         
         if not is_retired:
-            # Active working phase: salaries cover living costs, surplus flows to non-reg/TFSA
             active_salary_total = (user_annual_salary if user_is_working else 0) + (spouse_annual_salary if spouse_is_working else 0)
             total_gross = active_salary_total
             est_tax = estimate_alberta_tax(total_gross)
             total_lifetime_tax += est_tax
             eff_tax_rate = round((est_tax / total_gross) * 100, 1) if total_gross > 0 else 0.0
             
-            # Save surplus active cash flow into non-registered accounts
             net_salary_surplus = max(0.0, active_salary_total - est_tax - target_income)
             u_mf += net_salary_surplus
             
         else:
-            # Retirement phase waterfall
             if spouse_age_current >= ret_age_s:
                 pensions += spouse_company_pension
             if age >= 65:
@@ -150,7 +147,6 @@ def run_simulation(ret_age_u, ret_age_s):
             total_needed_cash = max(base_needed, mandatory_taxable_draw)
             remaining_cash_needed = total_needed_cash
             
-            # Waterfall Drawdown Logic
             drawn_rrsp_lira = min(remaining_cash_needed, mandatory_taxable_draw)
             remaining_cash_needed -= drawn_rrsp_lira
             
@@ -166,7 +162,6 @@ def run_simulation(ret_age_u, ret_age_s):
             drawn_extra_rrsp = min(remaining_cash_needed, max(0.0, total_rrsp_lira_pool))
             remaining_cash_needed -= drawn_extra_rrsp
             
-            # Pre-71 Meltdown Routine
             if enable_meltdown and age < 71:
                 current_taxable_est = pensions + drawn_rrsp_lira + drawn_extra_rrsp
                 bracket_target = 58523.0 
@@ -179,8 +174,7 @@ def run_simulation(ret_age_u, ret_age_s):
             total_portfolio_draw = drawn_rrsp_lira + drawn_non_reg + drawn_tfsa + drawn_extra_rrsp
             required_draw = total_portfolio_draw
                 
-            Parser_gross = required_draw + pensions + vol_rrsp_meltdown
-            total_gross = round(Parser_gross, 2)
+            total_gross = round(required_draw + pensions + vol_rrsp_meltdown, 2)
             est_tax = estimate_alberta_tax(total_gross)
             total_lifetime_tax += est_tax
             eff_tax_rate = round((est_tax / total_gross) * 100, 1) if total_gross > 0 else 0.0
@@ -189,7 +183,6 @@ def run_simulation(ret_age_u, ret_age_s):
             if surplus_meltdown_cash > 0:
                 u_tfsa_etf += surplus_meltdown_cash
 
-            # Asset deductions
             if total_non_reg_avail > 0 and drawn_non_reg > 0:
                 frac_u_mf = u_mf / total_non_reg_avail
                 u_mf = max(0.0, u_mf - (drawn_non_reg * frac_u_mf))
@@ -208,7 +201,7 @@ def run_simulation(ret_age_u, ret_age_s):
             total_rrsp_draw_amt = drawn_rrsp_lira + drawn_extra_rrsp + vol_rrsp_meltdown
             if total_rrsp_lira_pool_start > 0 and total_rrsp_draw_amt > 0:
                 u_rrsp = max(0.0, u_rrsp - (total_rrsp_draw_amt * (u_rrsp / total_rrsp_lira_pool_start)))
-                u_lira = max(0.0, u_lira - (total_lira_draw := total_rail := total_rrsp_draw_amt * (u_lira / total_rrsp_lira_pool_start)))
+                u_lira = max(0.0, u_lira - (total_rrsp_draw_amt * (u_lira / total_rrsp_lira_pool_start)))
                 s_rrsp = max(0.0, s_rrsp - (total_rrsp_draw_amt * (s_rrsp / total_rrsp_lira_pool_start)))
 
         total_user_rrsp_lira = round(u_rrsp + u_lira + s_rrsp, 2)
@@ -234,7 +227,6 @@ def run_simulation(ret_age_u, ret_age_s):
             "Total Household Portfolio": total_portfolio
         })
         
-        # Annual contributions and compound returns
         if not is_retired:
             if user_is_working:
                 u_rrsp += user_rrsp_annual_contrib
@@ -273,10 +265,8 @@ if st.sidebar.button("Find Lowest Lifetime Tax Ages"):
                 
     st.sidebar.success(f"Optimal Found! You: Age {best_combo[0]} | Spouse: Age {best_combo[1]} (Est. Lifetime Tax: ${best_tax:,.0f})")
 
-# Run main simulation with current inputs
 df_master, total_tax_paid = run_simulation(retirement_age_user, retirement_age_spouse)
 
-# Display Table
 st.subheader("📊 Tax-Optimized Projection Schedule & Account Balances")
 display_ages = [current_age_user, 55, 60, 64, retirement_age_user, 66, 70, 71, 75, 80, 85, life_expectancy]
 display_ages = sorted(list(set([a for a in display_ages if a <= life_expectancy])))
