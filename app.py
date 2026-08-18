@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
 
 st.set_page_config(page_title="Comprehensive Household Retirement & Tax Simulator", page_icon="📈", layout="wide")
 
@@ -40,7 +39,7 @@ with st.sidebar.expander("💰 Starting Portfolio Assets", expanded=False):
     st.markdown("**Spouse Assets**")
     spouse_rrsp_in = st.number_input("Spouse RRSP ($)", value=376550, step=10000)
     spouse_tfsa_in = st.number_input("Spouse TFSA ($)", value=156000, step=5000)
-    spouse_tfsa_mf_in = st.number_input("Spouse Non-Reg Mutual Funds ($)", value=80000, step=5000)
+    spouse_tfsa_mf_in = st.number_input("Spouse Non-Reg Mutual Funds ($)", value=9200, step=500)
     
     st.markdown("**Insurance / Other**")
     ul_initial_cash_value_each = st.number_input("Universal Life Cash Value (Each Policy) ($)", value=62000, step=5000)
@@ -204,9 +203,10 @@ def run_simulation(ret_age_u, ret_age_s):
 
         total_user_rrsp_lira = round(u_rrsp + u_lira + s_rrsp, 2)
         total_tfsa = round(u_tfsa_mf + u_tfsa_etf + s_tfsa, 2)
-        total_non_reg = round(u_mf + s_mf, 2)
+        user_non_reg_val = round(u_mf, 2)
+        spouse_non_reg_val = round(s_mf, 2)
         total_ul = round(ul_user + ul_spouse, 2)
-        total_portfolio = round(total_user_rrsp_lira + total_tfsa + total_non_reg + total_ul, 2)
+        total_portfolio = round(total_user_rrsp_lira + total_tfsa + user_non_reg_val + spouse_non_reg_val + total_ul, 2)
         
         sim_results.append({
             "Age": age,
@@ -221,7 +221,8 @@ def run_simulation(ret_age_u, ret_age_s):
             "Effective Tax Rate (%)": eff_tax_rate,
             "RRSP/LIRA Balances": total_user_rrsp_lira,
             "TFSA Balances": total_tfsa,
-            "Non-Reg Balances": total_non_reg,
+            "Your Non-Reg": user_non_reg_val,
+            "Spouse Non-Reg": spouse_non_reg_val,
             "UL Cash Value": total_ul,
             "Total Household Portfolio": total_portfolio
         })
@@ -282,8 +283,10 @@ st.dataframe(df_display.style.format({
     "Effective Tax Rate (%)": "{}%",
     "RRSP/LIRA Balances": "${:,.0f}",
     "TFSA Balances": "${:,.0f}",
-    "Non-Reg Balances": "${:,.0f}",
+    "Your Non-Reg": "${:,.0f}",
+    "Spouse Non-Reg": "${:,.0f}",
     "UL Cash Value": "${:,.0f}",
     "Total Household Portfolio": "${:,.0f}"
 }), use_container_width=True)
+
 
