@@ -22,7 +22,7 @@ with st.sidebar.expander("👥 Household Timeline & Salaries", expanded=False):
     current_age_user = st.number_input("Your Current Age", 20, 80, 51)
     current_age_spouse = st.number_input("Spouse's Current Age", 20, 80, 51)
     retirement_age_user = st.number_input("Your Target Retirement Age", 50, 75, 60)
-    retirement_age_spouse = st.number_input("Spouse's Target Retirement Age", 50, 75, 60)
+    retirement_age_spouse = st.number_input("Spouse's Target Retirement Age", 50, 75, 55)
     
     st.markdown("**Pre-Retirement Earned Income**")
     user_annual_salary = st.number_input("Your Current Annual Salary ($)", value=180000, step=5000)
@@ -57,7 +57,6 @@ with st.sidebar.expander("🛡️ Pensions & Guaranteed Income", expanded=False)
     cpp_oas_annual = st.number_input("Combined CPP & OAS (Age 65+) ($)", value=53800, step=1000)
     spouse_company_pension = st.number_input("Spouse Company Pension (Starts at Spouse Retirement) ($)", value=29000, step=1000)
 
-# RRIF Minimum Table Function
 def get_rrif_minimum_pct(age):
     rates = {
         71: 0.0528, 72: 0.0540, 73: 0.0553, 74: 0.0567, 75: 0.0582,
@@ -69,7 +68,6 @@ def get_rrif_minimum_pct(age):
         return 0.0
     return rates.get(age, 0.20)
 
-# Alberta Progressive Tax Estimation Function
 def estimate_alberta_tax(gross_income):
     if gross_income <= 0:
         return 0.0
@@ -83,7 +81,6 @@ def estimate_alberta_tax(gross_income):
         tax = 55194 + (gross_income - 181440) * 0.42
     return round(tax, -2)
 
-# Core Simulation Engine Function
 def run_simulation(ret_age_u, ret_age_s):
     start_age = current_age_user
     end_age = life_expectancy
@@ -109,7 +106,9 @@ def run_simulation(ret_age_u, ret_age_s):
         spouse_age_current = current_age_spouse + (age - start_age)
         user_is_working = age < ret_age_u
         spouse_is_working = spouse_age_current < ret_age_s
-        is_retired = (age >= ret_age_u) or (spouse_age_current >= ret_age_s)
+        
+        # Household is in accumulation/working mode as long as AT LEAST ONE person is still working
+        household_fully_retired = (not user_is_working) and (not spouse_is_working)
         
         pensions = 0.0
         required_draw = 0.0
@@ -118,7 +117,8 @@ def run_simulation(ret_age_u, ret_age_s):
         eff_tax_rate = 0.0
         vol_rrsp_meltdown = 0.0
         
-        if not is_retired:
+        if not household_fully_retired:
+            # Active working phase for at least one partner
             active_salary_total = (user_annual_salary if user_is_working else 0) + (spouse_annual_salary if spouse_is_working else 0)
             total_gross = active_salary_total
             est_tax = estimate_alberta_tax(total_gross)
@@ -129,6 +129,7 @@ def run_simulation(ret_age_u, ret_age_s):
             u_mf += net_salary_surplus
             
         else:
+            # Fully retired phase waterfall
             if spouse_age_current >= ret_age_s:
                 pensions += spouse_company_pension
             if age >= 65:
@@ -213,7 +214,8 @@ def run_simulation(ret_age_u, ret_age_s):
         sim_results.append({
             "Age": age,
             "Spouse Age": spouse_age_current,
-            "Retirement Status": "Retired" if is_retired else "Working",
+            "Your Status": "Working" if user_is_working else "Retired",
+            "Spouse Status": "Working" if spouse_is_working else "Retired",
             "Portfolio Drawdown": round(required_draw, 0),
             "Vol. RRSP Meltdown": round(vol_rrsp_meltdown, 0),
             "Pensions": round(pensions, 0),
@@ -227,14 +229,13 @@ def run_simulation(ret_age_u, ret_age_s):
             "Total Household Portfolio": total_portfolio
         })
         
-        if not is_retired:
-            if user_is_working:
-                u_rrsp += user_rrsp_annual_contrib
-                u_tfsa_mf += user_tfsa_annual_contrib * 0.5
-                u_tfsa_etf += user_tfsa_annual_contrib * 0.5
-            if spouse_is_working:
-                s_rrsp += spouse_rrsp_annual_contrib
-                s_tfsa += spouse_tfsa_annual_contrib
+        if user_is_working:
+            u_rrsp += user_rrsp_annual_contrib
+            u_tfsa_mf += user_tfsa_annual_contrib * 0.5
+            u_tfsa_etf += user_tfsa_annual_contrib * 0.5
+        if spouse_is_working:
+            s_rrsp += spouse_rrsp_annual_contrib
+            s_tfsa += spouse_tfsa_annual_contrib
                 
         u_rrsp *= (1 + r)
         u_lira *= (1 + r)
