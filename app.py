@@ -116,14 +116,12 @@ def run_simulation(ret_age_u, ret_age_s):
         eff_tax_rate = 0.0
         vol_rrsp_meltdown = 0.0
         
-        # Accumulate spouse pension if spouse has retired, regardless of user working status
         if not spouse_is_working:
             pensions += spouse_company_pension
         if age >= 65:
             pensions += cpp_oas_annual
 
         if not household_fully_retired:
-            # Active working phase for at least one partner (salaries + spouse pension included)
             active_salary_total = (user_annual_salary if user_is_working else 0) + (spouse_annual_salary if spouse_is_working else 0)
             total_gross = active_salary_total + pensions
             est_tax = estimate_alberta_tax(total_gross)
@@ -134,7 +132,6 @@ def run_simulation(ret_age_u, ret_age_s):
             u_mf += net_cash_surplus
             
         else:
-            # Fully retired phase waterfall
             base_needed = max(0.0, target_income - pensions)
             
             mandatory_taxable_draw = 0.0
@@ -257,7 +254,7 @@ if st.sidebar.button("Find Lowest Lifetime Tax Ages"):
     best_tax = float('inf')
     best_combo = (retirement_age_user, retirement_age_spouse)
     
-    for u_age in range(55, 69):
+    for u_age in range(65, 69):
         for s_age in range(55, 69):
             _, lifetime_tax = run_simulation(u_age, s_age)
             if lifetime_tax < best_tax:
@@ -289,5 +286,4 @@ st.dataframe(df_display.style.format({
     "UL Cash Value": "${:,.0f}",
     "Total Household Portfolio": "${:,.0f}"
 }), use_container_width=True)
-
 
