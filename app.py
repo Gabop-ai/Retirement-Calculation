@@ -21,7 +21,7 @@ with st.sidebar.expander("📊 Macro & Return Assumptions", expanded=True):
 with st.sidebar.expander("👥 Household Timeline & Salaries", expanded=False):
     current_age_user = st.number_input("Your Current Age", 20, 80, 51)
     current_age_spouse = st.number_input("Spouse's Current Age", 20, 80, 51)
-    retirement_age_user = st.number_input("Your Target Retirement Age", 50, 75, 60)
+    retirement_age_user = st.number_input("Your Target Retirement Age", 50, 75, 65)
     retirement_age_spouse = st.number_input("Spouse's Target Retirement Age", 50, 75, 55)
     
     st.markdown("**Pre-Retirement Earned Income**")
@@ -107,7 +107,6 @@ def run_simulation(ret_age_u, ret_age_s):
         user_is_working = age < ret_age_u
         spouse_is_working = spouse_age_current < ret_age_s
         
-        # Household is in accumulation/working mode as long as AT LEAST ONE person is still working
         household_fully_retired = (not user_is_working) and (not spouse_is_working)
         
         pensions = 0.0
@@ -117,24 +116,25 @@ def run_simulation(ret_age_u, ret_age_s):
         eff_tax_rate = 0.0
         vol_rrsp_meltdown = 0.0
         
+        # Accumulate spouse pension if spouse has retired, regardless of user working status
+        if not spouse_is_working:
+            pensions += spouse_company_pension
+        if age >= 65:
+            pensions += cpp_oas_annual
+
         if not household_fully_retired:
-            # Active working phase for at least one partner
+            # Active working phase for at least one partner (salaries + spouse pension included)
             active_salary_total = (user_annual_salary if user_is_working else 0) + (spouse_annual_salary if spouse_is_working else 0)
-            total_gross = active_salary_total
+            total_gross = active_salary_total + pensions
             est_tax = estimate_alberta_tax(total_gross)
             total_lifetime_tax += est_tax
             eff_tax_rate = round((est_tax / total_gross) * 100, 1) if total_gross > 0 else 0.0
             
-            net_salary_surplus = max(0.0, active_salary_total - est_tax - target_income)
-            u_mf += net_salary_surplus
+            net_cash_surplus = max(0.0, total_gross - est_tax - target_income)
+            u_mf += net_cash_surplus
             
         else:
             # Fully retired phase waterfall
-            if spouse_age_current >= ret_age_s:
-                pensions += spouse_company_pension
-            if age >= 65:
-                pensions += cpp_oas_annual
-                
             base_needed = max(0.0, target_income - pensions)
             
             mandatory_taxable_draw = 0.0
@@ -289,4 +289,5 @@ st.dataframe(df_display.style.format({
     "UL Cash Value": "${:,.0f}",
     "Total Household Portfolio": "${:,.0f}"
 }), use_container_width=True)
+
 
