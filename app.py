@@ -126,10 +126,6 @@ def run_simulation(ret_age_u, ret_age_s):
             est_tax = estimate_alberta_tax(total_gross)
             total_lifetime_tax += est_tax
             eff_tax_rate = round((est_tax / total_gross) * 100, 1) if total_gross > 0 else 0.0
-            
-            net_cash_surplus = max(0.0, total_gross - est_tax - target_income)
-            u_mf += net_cash_surplus
-            
         else:
             base_needed = max(0.0, target_income - pensions)
             
@@ -288,5 +284,3 @@ st.dataframe(df_display.style.format({
     "UL Cash Value": "${:,.0f}",
     "Total Household Portfolio": "${:,.0f}"
 }), use_container_width=True)
-
-
