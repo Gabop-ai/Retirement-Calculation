@@ -15,7 +15,7 @@ with st.sidebar.expander("📊 Macro & Return Assumptions", expanded=True):
     annual_return = st.number_input("Annual Compound Return Rate (%)", min_value=0.0, max_value=15.0, value=4.75, step=0.25) / 100.0
     target_income = st.number_input("Target Annual Gross Income ($CAD)", min_value=50000, max_value=500000, value=200000, step=5000)
     life_expectancy = st.slider("Model End Age (Life Expectancy)", 80, 100, 89)
-    enable_meltdown = st.checkbox("Enable Pre-71 Tax-Optimized RRSP Meltdown", value=True, help="Voluntarily draws down RRSP/LIRAs in your 60s to fill lower tax brackets.")
+    enable_meltdown = st.checkbox("Enable Pre-71 Tax-Optimized RRSP Meltdown", value=True, help="Voluntarily draws down RRSP/LIRAs in your 60s strictly within lower brackets.")
 
 # 2. Household Timeline
 with st.sidebar.expander("👥 Household Timeline", expanded=False):
@@ -149,13 +149,15 @@ def run_simulation(ret_age_u, ret_age_s):
             drawn_extra_rrsp = min(remaining_cash_needed, max(0.0, total_rrsp_lira_pool))
             remaining_cash_needed -= drawn_extra_rrsp
             
-            # Pre-71 Meltdown Routine
+            # OPTIMIZED Pre-71 Meltdown Routine (Strictly targets lower bracket headroom without over-inflating target income)
             if enable_meltdown and age < 71:
                 current_taxable_est = pensions + drawn_rrsp_lira + drawn_extra_rrsp
-                headroom = 117045.0 - current_taxable_est
-                if headroom > 5000:
+                # Target filling up to the first major AB tax bracket ceiling ($58,523) or lower second bracket threshold safely
+                bracket_target = 58523.0 
+                if current_taxable_est < bracket_target:
+                    headroom = bracket_target - current_taxable_est
                     available_to_melt = u_rrsp + u_lira + s_rrsp - drawn_rrsp_lira - drawn_extra_rrsp
-                    vol_rrsp_meltdown = min(headroom * 0.6, available_to_melt)
+                    vol_rrsp_meltdown = min(headroom, available_to_melt)
                     vol_rrsp_meltdown = max(0.0, vol_rrsp_meltdown)
 
             total_portfolio_draw = drawn_rrsp_lira + drawn_non_reg + drawn_tfsa + drawn_extra_rrsp
@@ -166,7 +168,8 @@ def run_simulation(ret_age_u, ret_age_s):
             total_lifetime_tax += est_tax
             eff_tax_rate = round((est_tax / total_gross) * 100, 1) if total_gross > 0 else 0.0
             
-            surplus_meltdown_cash = max(0.0, vol_rrsp_meltdown - max(0.0, target_income - (pensions + required_draw)))
+            # Surplus meltdown cash is auto-seeded into TFSA
+            surplus_meltdown_cash = vol_rrsp_meltdown
             if surplus_meltdown_cash > 0:
                 u_tfsa_etf += surplus_meltdown_cash
 
@@ -244,7 +247,6 @@ if st.sidebar.button("Find Lowest Lifetime Tax Ages"):
     best_tax = float('inf')
     best_combo = (retirement_age_user, retirement_age_spouse)
     
-    # Grid search across reasonable retirement ages (e.g., 55 to 68)
     for u_age in range(55, 69):
         for s_age in range(55, 69):
             _, lifetime_tax = run_simulation(u_age, s_age)
