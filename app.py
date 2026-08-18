@@ -17,12 +17,16 @@ with st.sidebar.expander("📊 Macro & Return Assumptions", expanded=True):
     life_expectancy = st.slider("Model End Age (Life Expectancy)", 80, 100, 89)
     enable_meltdown = st.checkbox("Enable Pre-71 Tax-Optimized RRSP Meltdown", value=True, help="Voluntarily draws down RRSP/LIRAs in your 60s strictly within lower brackets.")
 
-# 2. Household Timeline
-with st.sidebar.expander("👥 Household Timeline", expanded=False):
+# 2. Household Timeline & Active Salaries
+with st.sidebar.expander("👥 Household Timeline & Salaries", expanded=False):
     current_age_user = st.number_input("Your Current Age", 20, 80, 51)
     current_age_spouse = st.number_input("Spouse's Current Age", 20, 80, 51)
     retirement_age_user = st.number_input("Your Target Retirement Age", 50, 75, 60)
     retirement_age_spouse = st.number_input("Spouse's Target Retirement Age", 50, 75, 60)
+    
+    st.markdown("**Pre-Retirement Earned Income**")
+    user_annual_salary = st.number_input("Your Current Annual Salary ($)", value=180000, step=5000)
+    spouse_annual_salary = st.number_input("Spouse's Current Annual Salary ($)", value=110000, step=5000)
 
 # 3. Starting Portfolio Assets
 with st.sidebar.expander("💰 Starting Portfolio Assets", expanded=False):
@@ -79,7 +83,7 @@ def estimate_alberta_tax(gross_income):
         tax = 55194 + (gross_income - 181440) * 0.42
     return round(tax, -2)
 
-# Core Simulation Engine Function (Encapsulated for Grid Search)
+# Core Simulation Engine Function
 def run_simulation(ret_age_u, ret_age_s):
     start_age = current_age_user
     end_age = life_expectancy
@@ -114,7 +118,20 @@ def run_simulation(ret_age_u, ret_age_s):
         eff_tax_rate = 0.0
         vol_rrsp_meltdown = 0.0
         
-        if is_retired:
+        if not is_retired:
+            # Active working phase: salaries cover living costs, surplus flows to non-reg/TFSA
+            active_salary_total = (user_annual_salary if user_is_working else 0) + (spouse_annual_salary if spouse_is_working else 0)
+            total_gross = active_salary_total
+            est_tax = estimate_alberta_tax(total_gross)
+            total_lifetime_tax += est_tax
+            eff_tax_rate = round((est_tax / total_gross) * 100, 1) if total_gross > 0 else 0.0
+            
+            # Save surplus active cash flow into non-registered accounts
+            net_salary_surplus = max(0.0, active_salary_total - est_tax - target_income)
+            u_mf += net_salary_surplus
+            
+        else:
+            # Retirement phase waterfall
             if spouse_age_current >= ret_age_s:
                 pensions += spouse_company_pension
             if age >= 65:
@@ -149,10 +166,9 @@ def run_simulation(ret_age_u, ret_age_s):
             drawn_extra_rrsp = min(remaining_cash_needed, max(0.0, total_rrsp_lira_pool))
             remaining_cash_needed -= drawn_extra_rrsp
             
-            # OPTIMIZED Pre-71 Meltdown Routine (Strictly targets lower bracket headroom without over-inflating target income)
+            # Pre-71 Meltdown Routine
             if enable_meltdown and age < 71:
                 current_taxable_est = pensions + drawn_rrsp_lira + drawn_extra_rrsp
-                # Target filling up to the first major AB tax bracket ceiling ($58,523) or lower second bracket threshold safely
                 bracket_target = 58523.0 
                 if current_taxable_est < bracket_target:
                     headroom = bracket_target - current_taxable_est
@@ -163,12 +179,12 @@ def run_simulation(ret_age_u, ret_age_s):
             total_portfolio_draw = drawn_rrsp_lira + drawn_non_reg + drawn_tfsa + drawn_extra_rrsp
             required_draw = total_portfolio_draw
                 
-            total_gross = round(required_draw + pensions + vol_rrsp_meltdown, 2)
+            Parser_gross = required_draw + pensions + vol_rrsp_meltdown
+            total_gross = round(Parser_gross, 2)
             est_tax = estimate_alberta_tax(total_gross)
             total_lifetime_tax += est_tax
             eff_tax_rate = round((est_tax / total_gross) * 100, 1) if total_gross > 0 else 0.0
             
-            # Surplus meltdown cash is auto-seeded into TFSA
             surplus_meltdown_cash = vol_rrsp_meltdown
             if surplus_meltdown_cash > 0:
                 u_tfsa_etf += surplus_meltdown_cash
@@ -192,7 +208,7 @@ def run_simulation(ret_age_u, ret_age_s):
             total_rrsp_draw_amt = drawn_rrsp_lira + drawn_extra_rrsp + vol_rrsp_meltdown
             if total_rrsp_lira_pool_start > 0 and total_rrsp_draw_amt > 0:
                 u_rrsp = max(0.0, u_rrsp - (total_rrsp_draw_amt * (u_rrsp / total_rrsp_lira_pool_start)))
-                u_lira = max(0.0, u_lira - (total_rrsp_draw_amt * (u_lira / total_rrsp_lira_pool_start)))
+                u_lira = max(0.0, u_lira - (total_lira_draw := total_rail := total_rrsp_draw_amt * (u_lira / total_rrsp_lira_pool_start)))
                 s_rrsp = max(0.0, s_rrsp - (total_rrsp_draw_amt * (s_rrsp / total_rrsp_lira_pool_start)))
 
         total_user_rrsp_lira = round(u_rrsp + u_lira + s_rrsp, 2)
@@ -204,7 +220,7 @@ def run_simulation(ret_age_u, ret_age_s):
         sim_results.append({
             "Age": age,
             "Spouse Age": spouse_age_current,
-            "Retirement Status": "Retired" if is_retired else "Accumulating",
+            "Retirement Status": "Retired" if is_retired else "Working",
             "Portfolio Drawdown": round(required_draw, 0),
             "Vol. RRSP Meltdown": round(vol_rrsp_meltdown, 0),
             "Pensions": round(pensions, 0),
@@ -218,7 +234,8 @@ def run_simulation(ret_age_u, ret_age_s):
             "Total Household Portfolio": total_portfolio
         })
         
-        if age < end_age:
+        # Annual contributions and compound returns
+        if not is_retired:
             if user_is_working:
                 u_rrsp += user_rrsp_annual_contrib
                 u_tfsa_mf += user_tfsa_annual_contrib * 0.5
@@ -227,16 +244,16 @@ def run_simulation(ret_age_u, ret_age_s):
                 s_rrsp += spouse_rrsp_annual_contrib
                 s_tfsa += spouse_tfsa_annual_contrib
                 
-            u_rrsp *= (1 + r)
-            u_lira *= (1 + r)
-            u_tfsa_mf *= (1 + r)
-            u_tfsa_etf *= (1 + r)
-            u_mf *= (1 + r)
-            s_rrsp *= (1 + r)
-            s_tfsa *= (1 + r)
-            s_mf *= (1 + r)
-            ul_user *= (1 + r)
-            ul_spouse *= (1 + r)
+        u_rrsp *= (1 + r)
+        u_lira *= (1 + r)
+        u_tfsa_mf *= (1 + r)
+        u_tfsa_etf *= (1 + r)
+        u_mf *= (1 + r)
+        s_rrsp *= (1 + r)
+        s_tfsa *= (1 + r)
+        s_mf *= (1 + r)
+        ul_user *= (1 + r)
+        ul_spouse *= (1 + r)
 
     return pd.DataFrame(sim_results), total_lifetime_tax
 
@@ -281,39 +298,4 @@ st.dataframe(df_display.style.format({
     "UL Cash Value": "${:,.0f}",
     "Total Household Portfolio": "${:,.0f}"
 }), use_container_width=True)
-
-# Visualizations
-st.subheader("📈 Long-Term Wealth & Tax-Smoothed Cashflow Trends")
-fig, axes = plt.subplots(nrows=3, ncols=1, figsize=(10, 11), sharex=True)
-
-axes[0].plot(df_master["Age"], df_master["Total Household Portfolio"] / 1e6, label=f"Total Portfolio ($M) @ {annual_return*100:.2f}% Return", color="navy", linewidth=2.5)
-axes[0].set_ylabel("Portfolio Value ($M)")
-axes[0].grid(True, linestyle=":", alpha=0.6)
-axes[0].legend(loc="upper left")
-
-axes[1].stackplot(
-    df_master["Age"],
-    df_master["RRSP/LIRA Balances"] / 1e6,
-    df_master["TFSA Balances"] / 1e6,
-    df_master["Non-Reg Balances"] / 1e6,
-    df_master["UL Cash Value"] / 1e6,
-    labels=["RRSP / LIRA", "TFSA", "Non-Registered", "Universal Life"],
-    colors=["#1f77b4", "#2ca02c", "#ff7f0e", "#9467bd"],
-    alpha=0.85
-)
-axes[1].set_ylabel("Asset Mix ($M)")
-axes[1].grid(True, linestyle=":", alpha=0.6)
-axes[1].legend(loc="upper left")
-
-axes[2].bar(df_master["Age"], df_master["Pensions"] / 1e3, label="Pensions / CPP / OAS", color="skyblue")
-axes[2].bar(df_master["Age"], df_master["Portfolio Drawdown"] / 1e3, bottom=df_master["Pensions"] / 1e3, label="Portfolio Drawdowns", color="royalblue")
-axes[2].bar(df_master["Age"], df_master["Vol. RRSP Meltdown"] / 1e3, bottom=(df_master["Pensions"] + df_master["Portfolio Drawdown"]) / 1e3, label="Voluntary RRSP Meltdown", color="darkorange")
-axes[2].plot(df_master["Age"], df_master["Est. Tax Paid"] / 1e3, label="Est. Tax Paid ($k)", color="crimson", linewidth=2)
-axes[2].set_xlabel("Your Age")
-axes[2].set_ylabel("Annual Amount ($k)")
-axes[2].grid(True, linestyle=":", alpha=0.6)
-axes[2].legend(loc="upper left")
-
-plt.tight_layout()
-st.pyplot(fig)
 
